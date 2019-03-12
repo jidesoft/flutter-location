@@ -17,6 +17,11 @@ import com.google.android.gms.location.LocationCallback
 import io.flutter.plugin.common.PluginRegistry
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationRequest
+import android.location.Criteria
+import android.location.LocationListener
+import android.location.LocationManager
+import android.content.Context
+import android.os.Bundle
 
 
 class Channel {
@@ -44,9 +49,11 @@ class Permission {
 
 data class Error(val code: String, val desc: String)
 
+enum class LocationMode { AUTO, FUSED, DEFAULT, AMAP }
 
 
 class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventChannel.StreamHandler, PluginRegistry.RequestPermissionsResultListener {
+    private val locationMode: LocationMode = LocationMode.FUSED;
 
     private val permissionNotDeterminedErr = Error("PERMISSION_NOT_DETERMINED", "Location must be determined, call request permission before calling location")
     private val permissionDeniedErr = Error("PERMISSION_DENIED", "You are not allow to access location")
@@ -56,12 +63,13 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     private var fusedLocationClient = FusedLocationProviderClient(activity)
     private val locationRequest = LocationRequest()
 
+    private var locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
     private var permission: String = Permission.NOT_DETERMINED
     private var permissionRequested = false
 
     // private var result: Result? = null
     private var eventSink: EventChannel.EventSink? = null
-
 
     private var locationCallback: LocationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
@@ -70,10 +78,34 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
 
     }
 
+    inner class MylocationListener : LocationListener {
+        constructor() : super() {
+        }
+
+        override fun onLocationChanged(location: Location?) {
+            eventSink?.success(locationToMap(location))
+        }
+
+        override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
+
+        override fun onProviderEnabled(p0: String?) {}
+
+        override fun onProviderDisabled(p0: String?) {}
+    }
+
+    val locationListener = MylocationListener()
+    var criteria = android.location.Criteria();
+
     init {
         locationRequest.interval = 10000
         locationRequest.fastestInterval = 10000 / 2
         locationRequest.priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+
+        criteria.setAccuracy(Criteria.ACCURACY_FINE)
+        criteria.setAltitudeRequired(false)
+        criteria.setBearingRequired(false)
+        criteria.setCostAllowed(false)
+        criteria.setSpeedRequired(false)
     }
 
     /**
@@ -123,16 +155,22 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             return
         }
         this.eventSink = eventSink
-        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
+        when (locationMode) {
+            LocationMode.FUSED -> fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
+            LocationMode.DEFAULT -> locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
+        }
     }
 
     override fun onCancel(argument: Any?) {
-        fusedLocationClient.removeLocationUpdates(locationCallback)
+        when (locationMode) {
+            LocationMode.FUSED -> fusedLocationClient.removeLocationUpdates(locationCallback)
+            LocationMode.DEFAULT -> locationManager.removeUpdates(locationListener)
+        }
         this.eventSink = null
     }
 
     private fun permission(result: Result) {
-        val location = ActivityCompat.checkSelfPermission(activity,  Manifest.permission.ACCESS_FINE_LOCATION)
+        val location = ActivityCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
         permission = when {
             location == PackageManager.PERMISSION_GRANTED -> Permission.AUTHORIZED
             permissionRequested -> Permission.NOT_DETERMINED
@@ -143,7 +181,7 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
 
     private fun requestPermissions(result: Result) {
         var requested = false
-        val location = ActivityCompat.checkSelfPermission(activity,  Manifest.permission.ACCESS_FINE_LOCATION)
+        val location = ActivityCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
         if (location == PackageManager.PERMISSION_DENIED) {
             if (!permissionRequested) {
                 permissionRequested = true
@@ -160,20 +198,24 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         when (permission) {
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
             Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
-            Permission.AUTHORIZED -> fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                result.success(locationToMap(location))
+            Permission.AUTHORIZED -> {
+                when (locationMode) {
+                    LocationMode.FUSED -> fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                        result.success(locationToMap(location)) }
+                        LocationMode.DEFAULT -> locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
+                    }
+
+                }
             }
         }
 
+        private fun locationToMap(location: Location?) = hashMapOf(
+                "latitude" to location?.latitude,
+                "longitude" to location?.longitude,
+                "accuracy" to location?.accuracy?.toDouble(),
+                "altitude" to location?.altitude,
+                "speed" to location?.speed?.toDouble()
+        )
+
+
     }
-
-    private fun locationToMap(location: Location?) = hashMapOf(
-            "latitude" to location?.latitude,
-            "longitude" to location?.longitude,
-            "accuracy" to location?.accuracy?.toDouble(),
-            "altitude" to location?.altitude,
-            "speed" to location?.speed?.toDouble()
-    )
-
-
-}
