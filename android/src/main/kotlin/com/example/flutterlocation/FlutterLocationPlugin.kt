@@ -22,6 +22,8 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.content.Context
 import android.os.Bundle
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesUtil;
 
 
 class Channel {
@@ -35,6 +37,7 @@ class Method {
     companion object {
         const val PERMISSION = "permission"
         const val LOCATION = "location"
+        const val LOCATION_CHINA = "locationChina"
         const val REQUEST_PERMISSIONS = "requestPermissions"
     }
 }
@@ -49,12 +52,7 @@ class Permission {
 
 data class Error(val code: String, val desc: String)
 
-enum class LocationMode { AUTO, FUSED, DEFAULT, AMAP }
-
-
 class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventChannel.StreamHandler, PluginRegistry.RequestPermissionsResultListener {
-    private val locationMode: LocationMode = LocationMode.FUSED;
-
     private val permissionNotDeterminedErr = Error("PERMISSION_NOT_DETERMINED", "Location must be determined, call request permission before calling location")
     private val permissionDeniedErr = Error("PERMISSION_DENIED", "You are not allow to access location")
     private val requestCode = 22
@@ -68,7 +66,6 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     private var permission: String = Permission.NOT_DETERMINED
     private var permissionRequested = false
 
-    // private var result: Result? = null
     private var eventSink: EventChannel.EventSink? = null
 
     private var locationCallback: LocationCallback = object : LocationCallback() {
@@ -142,6 +139,7 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         when (call.method) {
             Method.PERMISSION -> permission(result)
             Method.LOCATION -> location(result)
+            Method.LOCATION_CHINA -> locationChina(result)
             Method.REQUEST_PERMISSIONS -> requestPermissions(result)
             else -> {
                 result.notImplemented()
@@ -155,17 +153,13 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             return
         }
         this.eventSink = eventSink
-        when (locationMode) {
-            LocationMode.FUSED -> fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
-            LocationMode.DEFAULT -> locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
-        }
+        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
+        locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
     }
 
     override fun onCancel(argument: Any?) {
-        when (locationMode) {
-            LocationMode.FUSED -> fusedLocationClient.removeLocationUpdates(locationCallback)
-            LocationMode.DEFAULT -> locationManager.removeUpdates(locationListener)
-        }
+        if(fusedLocationClient != null) fusedLocationClient.removeLocationUpdates(locationCallback)
+        if(locationManager != null) locationManager.removeUpdates(locationListener)
         this.eventSink = null
     }
 
@@ -194,28 +188,42 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     }
 
 
+    private fun locationChina(result: Result) {
+        when (permission) {
+            Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
+            Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
+            Permission.AUTHORIZED -> locationManager.requestSingleUpdate(criteria, object : android.location.LocationListener {
+                override fun onLocationChanged(location: Location?) {
+                    result.success(locationToMap(location))
+                }
+
+                override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
+
+                override fun onProviderEnabled(p0: String?) {}
+
+                override fun onProviderDisabled(p0: String?) {}
+            }, null)
+        }
+    }
+
     private fun location(result: Result) {
         when (permission) {
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
             Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
-            Permission.AUTHORIZED -> {
-                when (locationMode) {
-                    LocationMode.FUSED -> fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                        result.success(locationToMap(location)) }
-                        LocationMode.DEFAULT -> locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
-                    }
-
-                }
+            Permission.AUTHORIZED -> fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                result.success(locationToMap(location))
             }
+
         }
-
-        private fun locationToMap(location: Location?) = hashMapOf(
-                "latitude" to location?.latitude,
-                "longitude" to location?.longitude,
-                "accuracy" to location?.accuracy?.toDouble(),
-                "altitude" to location?.altitude,
-                "speed" to location?.speed?.toDouble()
-        )
-
-
     }
+
+    private fun locationToMap(location: Location?) = hashMapOf(
+            "latitude" to location?.latitude,
+            "longitude" to location?.longitude,
+            "accuracy" to location?.accuracy?.toDouble(),
+            "altitude" to location?.altitude,
+            "speed" to location?.speed?.toDouble()
+    )
+
+
+}

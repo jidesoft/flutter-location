@@ -43,7 +43,7 @@ class _MyAppState extends State<MyApp> {
     permission = await initPermission();
     Location location;
     if (permission == Permission.AUTHORIZED) {
-      location = await FlutterLocation.location;
+      location = await FlutterLocation.locationChina;
       FlutterLocation.onLocationChanged.listen(
         (location) {
           setState(() => this._currentLocation = location);

@@ -10,6 +10,7 @@ enum Channel {
 enum Method {
     static let permission = "permission"
     static let location = "location"
+    static let locationChina = "locationChina"
     static let request_permissions = "requestPermissions"
 }
 
@@ -63,6 +64,8 @@ public class SwiftFlutterLocationPlugin: NSObject, FlutterPlugin, FlutterStreamH
             self.permission(with: result)
         case Method.location:
             self.location(with: result)
+        case Method.locationChina:
+            self.locationChina(with: result)
         case Method.request_permissions:
             self.requestLocations(with: result)
         default:
@@ -89,6 +92,16 @@ public class SwiftFlutterLocationPlugin: NSObject, FlutterPlugin, FlutterStreamH
     }
     
     private func location(with result: @escaping FlutterResult) {
+        if CLLocationManager.authorizationStatus() != .authorizedAlways &&
+            CLLocationManager.authorizationStatus() != .authorizedWhenInUse {
+            return result(Error.locationUnavailable)
+        }
+        locationRequested = true
+        pendingResult = result
+        manager.startUpdatingLocation()
+    }
+
+    private func locationChina(with result: @escaping FlutterResult) {
         if CLLocationManager.authorizationStatus() != .authorizedAlways &&
             CLLocationManager.authorizationStatus() != .authorizedWhenInUse {
             return result(Error.locationUnavailable)

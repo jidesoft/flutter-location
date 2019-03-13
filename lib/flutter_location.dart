@@ -13,6 +13,7 @@ class Channel {
 class Method {
   static const permission = 'permission';
   static const location = 'location';
+  static const locationChina = 'locationChina';
   static const request_permissions = "requestPermissions";
 }
 
@@ -30,6 +31,11 @@ class FlutterLocation {
 
   static Future<Location> get location async {
     final location = await _channel.invokeMethod(Method.location);
+    return Location.fromJson(location);
+  }
+
+  static Future<Location> get locationChina async {
+    final location = await _channel.invokeMethod(Method.locationChina);
     return Location.fromJson(location);
   }
 
