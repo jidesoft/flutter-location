@@ -15,6 +15,7 @@ class Method {
   static const location = 'location';
   static const locationChina = 'locationChina';
   static const request_permissions = "requestPermissions";
+  static const is_google_play_available = "isGooglePlayAvailable";
 }
 
 class FlutterLocation {
@@ -41,6 +42,10 @@ class FlutterLocation {
 
   static Future<bool> get requestPermission async {
     return await _channel.invokeMethod(Method.request_permissions);
+  }
+
+  static Future<bool> get isGooglePlayAvailable async {
+    return await _channel.invokeMethod(Method.is_google_play_available);
   }
 
   static Stream<Location> get onLocationChanged {

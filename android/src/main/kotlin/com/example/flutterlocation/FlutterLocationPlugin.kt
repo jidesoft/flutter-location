@@ -39,6 +39,7 @@ class Method {
         const val LOCATION = "location"
         const val LOCATION_CHINA = "locationChina"
         const val REQUEST_PERMISSIONS = "requestPermissions"
+        const val IS_GOOGLE_PLAY_AVAILABVLE = "isGooglePlayAvailable"
     }
 }
 
@@ -96,9 +97,9 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     init {
         locationRequest.interval = 10000
         locationRequest.fastestInterval = 10000 / 2
-        locationRequest.priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+        locationRequest.priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
 
-        criteria.setAccuracy(Criteria.ACCURACY_FINE)
+        criteria.setAccuracy(Criteria.ACCURACY_COARSE)
         criteria.setAltitudeRequired(false)
         criteria.setBearingRequired(false)
         criteria.setCostAllowed(false)
@@ -141,6 +142,7 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             Method.LOCATION -> location(result)
             Method.LOCATION_CHINA -> locationChina(result)
             Method.REQUEST_PERMISSIONS -> requestPermissions(result)
+            Method.IS_GOOGLE_PLAY_AVAILABVLE -> isGooglePlayAvailable(result)
             else -> {
                 result.notImplemented()
             }
@@ -158,8 +160,8 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     }
 
     override fun onCancel(argument: Any?) {
-        if(fusedLocationClient != null) fusedLocationClient.removeLocationUpdates(locationCallback)
-        if(locationManager != null) locationManager.removeUpdates(locationListener)
+        if (fusedLocationClient != null) fusedLocationClient.removeLocationUpdates(locationCallback)
+        if (locationManager != null) locationManager.removeUpdates(locationListener)
         this.eventSink = null
     }
 
@@ -187,7 +189,6 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         result.success(requested)
     }
 
-
     private fun locationChina(result: Result) {
         when (permission) {
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
@@ -204,6 +205,18 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
                 override fun onProviderDisabled(p0: String?) {}
             }, null)
         }
+    }
+
+    private fun isGooglePlayAvailable(result: Result) {
+        val connectionResult = GooglePlayServicesUtil.isGooglePlayServicesAvailable(activity)
+
+        if (connectionResult != ConnectionResult.SUCCESS) {
+            // Google Play Services is NOT available. Show appropriate error dialog
+            result.success(false)
+        } else {
+            result.success(true)
+        }
+
     }
 
     private fun location(result: Result) {
