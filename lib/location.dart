@@ -4,6 +4,8 @@ class Location {
   final double accuracy;
   final double altitude;
   final double speed;
+  String city;
+  String district;
 
   Location({
     this.latitude,
@@ -20,7 +22,9 @@ class Location {
       accuracy: json['accuracy'] ?? 0.0,
       altitude: json['altitude'] ?? 0.0,
       speed: json['speed'] ?? 0.0,
-    );
+    )
+      ..city = json['city'] ?? null
+      ..district = json['district'] ?? null;
   }
 
   @override

@@ -22,8 +22,12 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.content.Context
 import android.os.Bundle
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GooglePlayServicesUtil;
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GooglePlayServicesUtil
+import com.amap.api.location.AMapLocation
+import com.amap.api.location.AMapLocationClient
+import com.amap.api.location.AMapLocationClientOption
+import com.amap.api.location.AMapLocationListener
 
 
 class Channel {
@@ -58,11 +62,19 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     private val permissionDeniedErr = Error("PERMISSION_DENIED", "You are not allow to access location")
     private val requestCode = 22
 
-
+    private var locationMode = 0;
+    // FusedLocation
     private var fusedLocationClient = FusedLocationProviderClient(activity)
     private val locationRequest = LocationRequest()
 
+    // Android Default Location
     private var locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val locationListener = MylocationListener()
+    var criteria = android.location.Criteria();
+
+    // AMap Location
+    var amapLocationClient: AMapLocationClient = AMapLocationClient(activity)
+    val amapOption = AMapLocationClientOption()
 
     private var permission: String = Permission.NOT_DETERMINED
     private var permissionRequested = false
@@ -91,8 +103,14 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         override fun onProviderDisabled(p0: String?) {}
     }
 
-    val locationListener = MylocationListener()
-    var criteria = android.location.Criteria();
+    inner class MyAmapLocationListener : AMapLocationListener {
+        constructor() : super() {
+        }
+
+        override fun onLocationChanged(location: AMapLocation?) {
+            eventSink?.success(amapLocationToMap(location))
+        }
+    }
 
     init {
         locationRequest.interval = 10000
@@ -104,6 +122,13 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         criteria.setBearingRequired(false)
         criteria.setCostAllowed(false)
         criteria.setSpeedRequired(false)
+
+        amapOption.setLocationPurpose(AMapLocationClientOption.AMapLocationPurpose.Transport)
+        amapOption.setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
+        amapOption.setHttpTimeOut(20000)
+        amapOption.setNeedAddress(true)
+        amapOption.setInterval(1000)
+        amapOption.setLocationCacheEnable(true)
     }
 
     /**
@@ -155,8 +180,16 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             return
         }
         this.eventSink = eventSink
-        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
-        locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
+        when(locationMode) {
+            0 -> fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
+            1 -> locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
+            2 -> {
+                amapLocationClient.setLocationListener(MyAmapLocationListener())
+                amapLocationClient.startLocation()
+            }
+        }
+
+
     }
 
     override fun onCancel(argument: Any?) {
@@ -189,21 +222,41 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         result.success(requested)
     }
 
+//    private fun locationChina(result: Result) {
+//    locationMode = 1;
+//        when (permission) {
+//            Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
+//            Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
+//            Permission.AUTHORIZED -> locationManager.requestSingleUpdate(criteria, object : android.location.LocationListener {
+//                override fun onLocationChanged(location: Location?) {
+//                    result.success(locationToMap(location))
+//                }
+//
+//                override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
+//
+//                override fun onProviderEnabled(p0: String?) {}
+//
+//                override fun onProviderDisabled(p0: String?) {}
+//            }, null)
+//        }
+//    }
+
     private fun locationChina(result: Result) {
+        locationMode = 2;
         when (permission) {
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
             Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
-            Permission.AUTHORIZED -> locationManager.requestSingleUpdate(criteria, object : android.location.LocationListener {
-                override fun onLocationChanged(location: Location?) {
-                    result.success(locationToMap(location))
-                }
+            Permission.AUTHORIZED -> {
+                amapOption.setOnceLocationLatest(true)
 
-                override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
-
-                override fun onProviderEnabled(p0: String?) {}
-
-                override fun onProviderDisabled(p0: String?) {}
-            }, null)
+                amapLocationClient.setLocationOption(amapOption)
+                amapLocationClient.setLocationListener(object: AMapLocationListener {
+                    override fun onLocationChanged(location: AMapLocation) {
+                        result.success(amapLocationToMap(location))
+                    }
+                })
+                amapLocationClient.startLocation()
+            }
         }
     }
 
@@ -220,6 +273,7 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     }
 
     private fun location(result: Result) {
+        locationMode = 0;
         when (permission) {
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
             Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
@@ -235,6 +289,20 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             "longitude" to location?.longitude,
             "accuracy" to location?.accuracy?.toDouble(),
             "altitude" to location?.altitude,
+            "speed" to location?.speed?.toDouble()
+    )
+
+    private fun amapLocationToMap(location: AMapLocation?) = hashMapOf(
+            "latitude" to location?.latitude,
+            "longitude" to location?.longitude,
+            "accuracy" to location?.accuracy?.toDouble(),
+            "altitude" to location?.altitude,
+            "district" to location?.district,
+            "city" to location?.city,
+//            "province" to location?.province,
+//            "country" to location?.country,
+//            "address" to location?.address,
+//            "aoiName" to location?.aoiName,
             "speed" to location?.speed?.toDouble()
     )
 
