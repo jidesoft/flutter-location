@@ -2,6 +2,11 @@ package com.example.flutterlocation
 
 import android.Manifest
 import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GooglePlayServicesUtil
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -10,20 +15,15 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.PluginRegistry.Registrar
 import android.app.Activity
 import android.content.pm.PackageManager
-import android.location.Location
 import android.os.Looper
 import androidx.core.app.ActivityCompat
-import com.google.android.gms.location.LocationCallback
 import io.flutter.plugin.common.PluginRegistry
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationRequest
+import android.location.Location
 import android.location.Criteria
 import android.location.LocationListener
 import android.location.LocationManager
 import android.content.Context
 import android.os.Bundle
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GooglePlayServicesUtil
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
@@ -63,18 +63,15 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     private val requestCode = 22
 
     private var locationMode = 0;
-    // FusedLocation
-    private var fusedLocationClient = FusedLocationProviderClient(activity)
-    private val locationRequest = LocationRequest()
+    // `Location
+    private var fusedLocationClient: FusedLocationProviderClient? = null
 
     // Android Default Location
-    private var locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    val locationListener = MylocationListener()
-    var criteria = android.location.Criteria();
+    private var locationManager: android.location.LocationManager? = null
+    var locationListener: android.location.LocationListener? = null
 
     // AMap Location
-    var amapLocationClient: AMapLocationClient = AMapLocationClient(activity)
-    val amapOption = AMapLocationClientOption()
+    var amapLocationClient: AMapLocationClient? = null
 
     private var permission: String = Permission.NOT_DETERMINED
     private var permissionRequested = false
@@ -110,25 +107,6 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         override fun onLocationChanged(location: AMapLocation?) {
             eventSink?.success(amapLocationToMap(location))
         }
-    }
-
-    init {
-        locationRequest.interval = 10000
-        locationRequest.fastestInterval = 10000 / 2
-        locationRequest.priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
-
-        criteria.setAccuracy(Criteria.ACCURACY_COARSE)
-        criteria.setAltitudeRequired(false)
-        criteria.setBearingRequired(false)
-        criteria.setCostAllowed(false)
-        criteria.setSpeedRequired(false)
-
-        amapOption.setLocationPurpose(AMapLocationClientOption.AMapLocationPurpose.Transport)
-        amapOption.setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
-        amapOption.setHttpTimeOut(20000)
-        amapOption.setNeedAddress(true)
-        amapOption.setInterval(1000)
-        amapOption.setLocationCacheEnable(true)
     }
 
     /**
@@ -180,12 +158,38 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             return
         }
         this.eventSink = eventSink
-        when(locationMode) {
-            0 -> fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())
-            1 -> locationManager.requestLocationUpdates(locationManager.getBestProvider(criteria, false), 0L, 0f, locationListener)
+        when (locationMode) {
+            0 -> {
+                var locationRequest = LocationRequest()
+                locationRequest.interval = 10000
+                locationRequest.fastestInterval = 10000 / 2
+                locationRequest.priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
+                if (fusedLocationClient == null) {
+                    fusedLocationClient = FusedLocationProviderClient(activity)
+                }
+                fusedLocationClient?.let{it.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())}
+            }
+            1 -> {
+                var criteria = android.location.Criteria()
+                criteria.setAccuracy(Criteria.ACCURACY_COARSE)
+                criteria.setAltitudeRequired(false)
+                criteria.setBearingRequired(false)
+                criteria.setCostAllowed(false)
+                criteria.setSpeedRequired(false)
+                if (locationManager == null) {
+                    locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                }
+                if (locationListener == null) {
+                    locationListener = MylocationListener()
+                }
+                locationManager?.let{it.requestLocationUpdates(it.getBestProvider(criteria, false), 0L, 0f, locationListener)}
+            }
             2 -> {
-                amapLocationClient.setLocationListener(MyAmapLocationListener())
-                amapLocationClient.startLocation()
+                if (amapLocationClient == null) {
+                    amapLocationClient = AMapLocationClient(activity)
+                }
+                amapLocationClient?.let{it.setLocationListener(MyAmapLocationListener())}
+                amapLocationClient?.let{it.startLocation()}
             }
         }
 
@@ -193,8 +197,8 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     }
 
     override fun onCancel(argument: Any?) {
-        if (fusedLocationClient != null) fusedLocationClient.removeLocationUpdates(locationCallback)
-        if (locationManager != null) locationManager.removeUpdates(locationListener)
+        if (fusedLocationClient != null) fusedLocationClient?.let{it.removeLocationUpdates(locationCallback)}
+        if (locationManager != null) locationManager?.let{it.removeUpdates(locationListener)}
         this.eventSink = null
     }
 
@@ -247,15 +251,26 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
             Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
             Permission.AUTHORIZED -> {
+                if (amapLocationClient == null) {
+                    amapLocationClient = AMapLocationClient(activity)
+                }
+
+                var amapOption = AMapLocationClientOption()
+                amapOption.setLocationPurpose(AMapLocationClientOption.AMapLocationPurpose.Transport)
+                amapOption.setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
+                amapOption.setHttpTimeOut(20000)
+                amapOption.setNeedAddress(true)
+                amapOption.setInterval(1000)
+                amapOption.setLocationCacheEnable(true)
                 amapOption.setOnceLocationLatest(true)
 
-                amapLocationClient.setLocationOption(amapOption)
-                amapLocationClient.setLocationListener(object: AMapLocationListener {
+                amapLocationClient?.let{it.setLocationOption(amapOption)}
+                amapLocationClient?.let{it.setLocationListener(object : AMapLocationListener {
                     override fun onLocationChanged(location: AMapLocation) {
                         result.success(amapLocationToMap(location))
                     }
-                })
-                amapLocationClient.startLocation()
+                })}
+                amapLocationClient?.let{it.startLocation()}
             }
         }
     }
@@ -277,8 +292,13 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         when (permission) {
             Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
             Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
-            Permission.AUTHORIZED -> fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                result.success(locationToMap(location))
+            Permission.AUTHORIZED -> {
+                if (fusedLocationClient == null) {
+                    fusedLocationClient = FusedLocationProviderClient(activity)
+                }
+                fusedLocationClient?.let{it.lastLocation.addOnSuccessListener { location ->
+                    result.success(locationToMap(location))
+                }}
             }
 
         }
