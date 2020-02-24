@@ -24,6 +24,10 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.content.Context
 import android.os.Bundle
+import com.amap.api.location.AMapLocation
+import com.amap.api.location.AMapLocationClient
+import com.amap.api.location.AMapLocationClientOption
+import com.amap.api.location.AMapLocationListener
 
 
 class Channel {
@@ -66,6 +70,9 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
     private var locationManager: android.location.LocationManager? = null
     var locationListener: android.location.LocationListener? = null
 
+    // AMap Location
+    var amapLocationClient: AMapLocationClient? = null
+
     private var permission: String = Permission.NOT_DETERMINED
     private var permissionRequested = false
 
@@ -91,6 +98,15 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         override fun onProviderEnabled(p0: String?) {}
 
         override fun onProviderDisabled(p0: String?) {}
+    }
+
+    inner class MyAmapLocationListener : AMapLocationListener {
+        constructor() : super() {
+        }
+
+        override fun onLocationChanged(location: AMapLocation?) {
+            eventSink?.success(amapLocationToMap(location))
+        }
     }
 
     /**
@@ -127,7 +143,7 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
         when (call.method) {
             Method.PERMISSION -> permission(result)
             Method.LOCATION -> location(result)
-            Method.LOCATION_CHINA -> location(result)
+            Method.LOCATION_CHINA -> locationChina(result)
             Method.REQUEST_PERMISSIONS -> requestPermissions(result)
             Method.IS_GOOGLE_PLAY_AVAILABVLE -> isGooglePlayAvailable(result)
             else -> {
@@ -153,7 +169,7 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
                 }
                 fusedLocationClient?.let{it.requestLocationUpdates(locationRequest, locationCallback, Looper.myLooper())}
             }
-            1, 2 -> {
+            1 -> {
                 var criteria = android.location.Criteria()
                 criteria.setAccuracy(Criteria.ACCURACY_COARSE)
                 criteria.setAltitudeRequired(false)
@@ -167,6 +183,13 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
                     locationListener = MylocationListener()
                 }
                 locationManager?.let{it.requestLocationUpdates(it.getBestProvider(criteria, false), 0L, 0f, locationListener)}
+            }
+            2 -> {
+                if (amapLocationClient == null) {
+                    amapLocationClient = AMapLocationClient(activity)
+                }
+                amapLocationClient?.let{it.setLocationListener(MyAmapLocationListener())}
+                amapLocationClient?.let{it.startLocation()}
             }
         }
 
@@ -201,6 +224,55 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             }
         }
         result.success(requested)
+    }
+
+//    private fun locationChina(result: Result) {
+//    locationMode = 1;
+//        when (permission) {
+//            Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
+//            Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
+//            Permission.AUTHORIZED -> locationManager.requestSingleUpdate(criteria, object : android.location.LocationListener {
+//                override fun onLocationChanged(location: Location?) {
+//                    result.success(locationToMap(location))
+//                }
+//
+//                override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
+//
+//                override fun onProviderEnabled(p0: String?) {}
+//
+//                override fun onProviderDisabled(p0: String?) {}
+//            }, null)
+//        }
+//    }
+
+    private fun locationChina(result: Result) {
+        locationMode = 2;
+        when (permission) {
+            Permission.NOT_DETERMINED -> result.error(permissionNotDeterminedErr.code, permissionNotDeterminedErr.desc, null)
+            Permission.DENIED -> result.error(permissionDeniedErr.code, permissionDeniedErr.desc, null)
+            Permission.AUTHORIZED -> {
+                if (amapLocationClient == null) {
+                    amapLocationClient = AMapLocationClient(activity)
+                }
+
+                var amapOption = AMapLocationClientOption()
+                amapOption.setLocationPurpose(AMapLocationClientOption.AMapLocationPurpose.Transport)
+                amapOption.setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
+                amapOption.setHttpTimeOut(20000)
+                amapOption.setNeedAddress(true)
+                amapOption.setInterval(1000)
+                amapOption.setLocationCacheEnable(true)
+                amapOption.setOnceLocationLatest(true)
+
+                amapLocationClient?.let{it.setLocationOption(amapOption)}
+                amapLocationClient?.let{it.setLocationListener(object : AMapLocationListener {
+                    override fun onLocationChanged(location: AMapLocation) {
+                        result.success(amapLocationToMap(location))
+                    }
+                })}
+                amapLocationClient?.let{it.startLocation()}
+            }
+        }
     }
 
     private fun isGooglePlayAvailable(result: Result) {
@@ -239,4 +311,20 @@ class FlutterLocationPlugin(val activity: Activity) : MethodCallHandler, EventCh
             "altitude" to location?.altitude,
             "speed" to location?.speed?.toDouble()
     )
+
+    private fun amapLocationToMap(location: AMapLocation?) = hashMapOf(
+            "latitude" to location?.latitude,
+            "longitude" to location?.longitude,
+            "accuracy" to location?.accuracy?.toDouble(),
+            "altitude" to location?.altitude,
+            "district" to location?.district,
+            "city" to location?.city,
+//            "province" to location?.province,
+//            "country" to location?.country,
+//            "address" to location?.address,
+//            "aoiName" to location?.aoiName,
+            "speed" to location?.speed?.toDouble()
+    )
+
+
 }
